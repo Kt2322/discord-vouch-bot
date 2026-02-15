@@ -7,7 +7,9 @@ import random
 # ----------------- CONFIG -----------------
 PREFIX = "$"
 TOKEN = os.getenv("TOKEN")  # TOKEN MUST BE SET IN ENV VARIABLES
+VOUCH_FILE = "vouches.json"
 VOUCH_ROLE_ID = 1472071858047422514  # Member role limited to fun + vouch
+BOT_OWNER_ID = 1320875525409083459  # Your Discord ID
 
 # ----------------- INTENTS -----------------
 intents = discord.Intents.default()
@@ -18,10 +20,14 @@ intents.members = True
 client = discord.Client(intents=intents)
 
 # ----------------- LOAD VOUCHES -----------------
-vouches = {}
+if os.path.exists(VOUCH_FILE):
+    with open(VOUCH_FILE, "r") as f:
+        vouches = json.load(f)
+else:
+    vouches = {}
 
 def save_vouches():
-    with open("vouches.json", "w") as f:
+    with open(VOUCH_FILE, "w") as f:
         json.dump(vouches, f, indent=4)
 
 # ----------------- READY -----------------
@@ -47,21 +53,23 @@ async def on_message(message):
         commands = []
         if has_vouch_role:
             commands += [
-                "$vouch @user — submit a vouch (essay style)",
-                "$ping, $userinfo @user, $serverinfo, $avatar @user",
-                "$coinflip, $roll, $8ball question, $meme"
+                "$vouch — submit a vouch (essay style)",
+                "$ticket — open a private ticket with the bot owner",
+                "$ping, $userinfo, $serverinfo, $avatar",
+                "$coinflip, $roll, $8ball, $meme"
             ]
         if is_admin:
             commands += [
-                "$vouches — show all vouches",
+                "$reviews — view all vouches",
                 "$lock/$unlock — lock channel",
-                "$kick/$ban/$unban — moderation"
+                "$kick/$ban/$unban — moderation",
+                "$ticket @user — open ticket for someone else"
             ]
         if not commands:
             # regular members without vouch role
             commands += [
-                "$ping, $userinfo @user, $serverinfo, $avatar @user",
-                "$coinflip, $roll, $8ball question, $meme"
+                "$ping, $userinfo, $serverinfo, $avatar",
+                "$coinflip, $roll, $8ball, $meme"
             ]
 
         help_text = "**Available Commands:**\n" + "\n".join(commands)
@@ -72,19 +80,18 @@ async def on_message(message):
         if not has_vouch_role:
             await message.channel.send("❌ You are not allowed to vouch.")
             return
-        if not message.mentions:
-            await message.channel.send("❌ Mention a user to vouch for.")
-            return
 
-        target = message.mentions[0]
+        target = message.guild.get_member(BOT_OWNER_ID)
+        if not target:
+            await message.channel.send("❌ Bot owner not found in this server.")
+            return
 
         essay_template = (
             f"**Vouch Template for {target.mention}**\n"
-            "Fill in your answers below in this format:\n\n"
+            "Please answer below in one message in this format:\n\n"
             "1️⃣ Experience Rating:\n"
             "2️⃣ Item Bought:\n"
-            "3️⃣ Is this user trusted (yes/no):\n\n"
-            "Please reply with your answers in one message."
+            "3️⃣ Is this user trusted (yes/no):"
         )
         await message.channel.send(essay_template)
 
@@ -97,7 +104,7 @@ async def on_message(message):
             await message.channel.send("⏰ Vouch timed out. Please try again.")
             return
 
-        # Parse user answers
+        # Parse answers
         lines = reply.content.splitlines()
         answers = {"rating": "", "item": "", "trusted": ""}
         for line in lines:
@@ -109,9 +116,9 @@ async def on_message(message):
                 answers["trusted"] = line.split(":", 1)[-1].strip()
 
         # Save vouch
-        vouches.setdefault(guild_id, {})
-        vouches[guild_id].setdefault(str(target.id), [])
-        vouches[guild_id][str(target.id)].append({
+        vouches.setdefault(str(guild_id), {})
+        vouches[str(guild_id)].setdefault(str(BOT_OWNER_ID), [])
+        vouches[str(guild_id)][str(BOT_OWNER_ID)].append({
             "by": f"{message.author} ({message.author.id})",
             "rating": answers["rating"],
             "item": answers["item"],
@@ -119,7 +126,6 @@ async def on_message(message):
         })
         save_vouches()
 
-        # Send summary embed
         embed = discord.Embed(title=f"Vouch Recorded by {message.author}", color=discord.Color.green())
         embed.add_field(name="Vouched User", value=target.mention, inline=False)
         embed.add_field(name="Experience Rating", value=answers["rating"] or "Not provided", inline=False)
@@ -127,32 +133,58 @@ async def on_message(message):
         embed.add_field(name="Trusted?", value=answers["trusted"] or "Not provided", inline=False)
         await message.channel.send(embed=embed)
 
-    # ----------------- SHOW VOUCHES -----------------
-    elif content == f"{PREFIX}vouches" and is_admin:
-        if guild_id not in vouches or not vouches[guild_id]:
-            await message.channel.send("No vouches recorded yet in this server.")
+    # ----------------- REVIEWS -----------------
+    elif content == f"{PREFIX}reviews" and is_admin:
+        if str(guild_id) not in vouches or not vouches[str(guild_id)]:
+            await message.channel.send("No vouches recorded yet.")
             return
 
-        embed = discord.Embed(
-            title=f"All Vouches in {message.guild.name}",
-            color=discord.Color.blue()
-        )
-
-        for user_id, vouch_list in vouches[guild_id].items():
-            user = message.guild.get_member(int(user_id))
-            user_name = user.display_name if user else f"User ID {user_id}"
-            vouch_texts = []
-            for v in vouch_list:
-                vouch_texts.append(
-                    f"**By:** {v['by']}\n⭐ {v['rating']}\n🛒 {v['item']}\n✅ {v['trusted']}"
+        review_lines = []
+        for user_id, user_vouches in vouches[str(guild_id)].items():
+            for v in user_vouches:
+                review_lines.append(
+                    f"Vouched by {v['by']}\n"
+                    f"Experience: {v['rating'] or 'Not provided'}\n"
+                    f"Item: {v['item'] or 'Not provided'}\n"
+                    f"Trusted: {v['trusted'] or 'Not provided'}\n"
+                    "---------------------"
                 )
-            embed.add_field(
-                name=user_name,
-                value="\n\n".join(vouch_texts[:3]),
-                inline=False
-            )
 
-        await message.channel.send(embed=embed)
+        chunk_size = 1900
+        msg = ""
+        for line in review_lines:
+            if len(msg) + len(line) + 1 > chunk_size:
+                await message.channel.send(f"```{msg}```")
+                msg = line + "\n"
+            else:
+                msg += line + "\n"
+        if msg:
+            await message.channel.send(f"```{msg}```")
+
+    # ----------------- TICKET -----------------
+    elif content.startswith(f"{PREFIX}ticket"):
+        if has_vouch_role and content.strip() == f"{PREFIX}ticket":
+            # member opens ticket with owner
+            overwrites = {
+                message.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                message.author: discord.PermissionOverwrite(read_messages=True),
+                message.guild.get_member(BOT_OWNER_ID): discord.PermissionOverwrite(read_messages=True)
+            }
+            thread_name = f"ticket-{message.author.name}"
+            category = message.channel.category
+            ticket_channel = await message.guild.create_text_channel(thread_name, overwrites=overwrites, category=category)
+            await ticket_channel.send(f"Ticket opened for {message.author.mention}")
+        elif is_admin and message.mentions:
+            target_user = message.mentions[0]
+            overwrites = {
+                message.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                target_user: discord.PermissionOverwrite(read_messages=True),
+                message.author: discord.PermissionOverwrite(read_messages=True)
+            }
+            thread_name = f"ticket-{target_user.name}"
+            category = message.channel.category
+            ticket_channel = await message.guild.create_text_channel(thread_name, overwrites=overwrites, category=category)
+            await ticket_channel.send(f"Ticket opened by {message.author.mention} for {target_user.mention}")
 
     # ----------------- LOCK / UNLOCK -----------------
     elif content == f"{PREFIX}lock" and is_admin:
