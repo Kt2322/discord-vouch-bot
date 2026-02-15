@@ -5,6 +5,7 @@ import os
 import random
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
+import aiohttp
 
 # ----------------- CONFIG -----------------
 PREFIX = "$"
@@ -33,17 +34,56 @@ def save_vouches():
         json.dump(vouches, f, indent=4)
 
 # ----------------- HELPER: CREATE VOUCH IMAGE -----------------
-def create_vouch_image(vouch_data):
-    width, height = 400, 150
+async def fetch_avatar_image(url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.read()
+            return Image.open(BytesIO(data)).convert("RGBA")
+
+async def create_vouch_image_single(vouch, author_avatar_url):
+    width, height = 450, 180
     img = Image.new('RGB', (width, height), color=(30, 30, 30))
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default()
-    y = 10
-    for idx, v in enumerate(vouch_data, 1):
-        draw.text((10, y), f"Vouch {idx} by {v['by']}", fill=(255,255,255), font=font)
-        y += 15
-        draw.text((20, y), f"⭐ {v['rating']} | 🛒 {v['item']} | ✅ {v['trusted']}", fill=(200,200,255), font=font)
-        y += 25
+
+    # Draw author avatar
+    avatar_img = await fetch_avatar_image(author_avatar_url)
+    if avatar_img:
+        avatar_img = avatar_img.resize((50,50))
+        img.paste(avatar_img, (10,10))
+
+    draw.text((70,10), f"{vouch['by']}", fill=(255,255,255), font=font)
+    draw.text((70,35), f"⭐ {vouch['rating']}", fill=(200,200,255), font=font)
+    draw.text((70,55), f"🛒 {vouch['item']}", fill=(200,200,255), font=font)
+    draw.text((70,75), f"✅ {vouch['trusted']}", fill=(200,200,255), font=font)
+
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+async def create_vouch_image_board(vouch_list):
+    # Each vouch takes ~180px in height
+    width, height = 450, 180 * len(vouch_list)
+    img = Image.new('RGB', (width, height), color=(30,30,30))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+
+    y_offset = 0
+    for vouch in vouch_list:
+        # Draw avatar
+        avatar_img = await fetch_avatar_image(vouch['avatar_url'])
+        if avatar_img:
+            avatar_img = avatar_img.resize((50,50))
+            img.paste(avatar_img, (10, y_offset+10))
+        draw.text((70, y_offset+10), f"{vouch['by']}", fill=(255,255,255), font=font)
+        draw.text((70, y_offset+35), f"⭐ {vouch['rating']}", fill=(200,200,255), font=font)
+        draw.text((70, y_offset+55), f"🛒 {vouch['item']}", fill=(200,200,255), font=font)
+        draw.text((70, y_offset+75), f"✅ {vouch['trusted']}", fill=(200,200,255), font=font)
+        y_offset += 180
+
     buffer = BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
@@ -124,8 +164,7 @@ async def on_message(message):
                 await message.channel.send("⏰ Vouch timed out. Please try again.")
                 return
 
-        await message.channel.send("Recording your vouch...")
-        # Delete questions
+        # Delete question messages
         async for m in message.channel.history(limit=10):
             if m.author == client.user:
                 await m.delete()
@@ -136,20 +175,25 @@ async def on_message(message):
             "by": f"{message.author} ({message.author.id})",
             "rating": answers[0],
             "item": answers[1],
-            "trusted": answers[2]
+            "trusted": answers[2],
+            "avatar_url": message.author.avatar.url
         })
         save_vouches()
 
-        # Send mini vouch image
-        img_buffer = create_vouch_image(vouches[guild_id][str(target.id)])
+        # Send vouch image
+        img_buffer = await create_vouch_image_single(vouches[guild_id][str(target.id)][-1], message.author.avatar.url)
         await message.channel.send(file=discord.File(fp=img_buffer, filename="vouch.png"))
 
     # ----------------- REVIEWS -----------------
     elif content == f"{PREFIX}reviews" and is_admin:
-        if guild_id not in vouches or not vouches[guild_id]:
+        all_vouches = []
+        for uid in vouches[guild_id]:
+            for v in vouches[guild_id][uid]:
+                all_vouches.append(v)
+        if not all_vouches:
             await message.channel.send("No vouches yet.")
             return
-        img_buffer = create_vouch_image([v for uid in vouches[guild_id] for v in vouches[guild_id][uid]])
+        img_buffer = await create_vouch_image_board(all_vouches)
         await message.channel.send(file=discord.File(fp=img_buffer, filename="reviews.png"))
 
     # ----------------- TICKET -----------------
