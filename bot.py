@@ -2,12 +2,12 @@ import discord
 import asyncio
 import json
 import os
+import random
 
 # ----------------- CONFIG -----------------
 PREFIX = "$"
-TOKEN = os.getenv("TOKEN") # TOKEN MUST BE SET IN ENV VARIABLES
-VOUCH_FILE = "vouches.json"
-VOUCH_ROLE_ID = 1472071858047422514 # Member role limited to fun + vouch
+TOKEN = os.getenv("TOKEN")  # TOKEN MUST BE SET IN ENV VARIABLES
+VOUCH_ROLE_ID = 1472071858047422514  # Member role limited to fun + vouch
 
 # ----------------- INTENTS -----------------
 intents = discord.Intents.default()
@@ -18,14 +18,10 @@ intents.members = True
 client = discord.Client(intents=intents)
 
 # ----------------- LOAD VOUCHES -----------------
-if os.path.exists(VOUCH_FILE):
-    with open(VOUCH_FILE, "r") as f:
-        vouches = json.load(f)
-else:
-    vouches = {}
+vouches = {}
 
 def save_vouches():
-    with open(VOUCH_FILE, "w") as f:
+    with open("vouches.json", "w") as f:
         json.dump(vouches, f, indent=4)
 
 # ----------------- READY -----------------
@@ -50,36 +46,45 @@ async def on_message(message):
     if content == f"{PREFIX}help":
         commands = []
         if has_vouch_role:
-            commands += ["$vouch @user — submit a vouch (essay style)"]
-            commands += ["$ping", "$userinfo @user", "$serverinfo", "$avatar @user", "$coinflip", "$roll", "$8ball question", "$meme"]
+            commands += [
+                "$vouch @user — submit a vouch (essay style)",
+                "$ping, $userinfo @user, $serverinfo, $avatar @user",
+                "$coinflip, $roll, $8ball question, $meme"
+            ]
         if is_admin:
-            commands += ["$vouches — download vouch backup", "$lock/$unlock — lock channel", "$kick/$ban/$unban — moderation"]
+            commands += [
+                "$vouches — show all vouches",
+                "$lock/$unlock — lock channel",
+                "$kick/$ban/$unban — moderation"
+            ]
         if not commands:
-            commands += ["$ping", "$userinfo @user", "$serverinfo", "$avatar @user", "$coinflip", "$roll", "$8ball question", "$meme"]
+            # regular members without vouch role
+            commands += [
+                "$ping, $userinfo @user, $serverinfo, $avatar @user",
+                "$coinflip, $roll, $8ball question, $meme"
+            ]
 
         help_text = "**Available Commands:**\n" + "\n".join(commands)
         await message.channel.send(help_text)
 
-    # ----------------- VOUCH (ESSAY STYLE) -----------------
+    # ----------------- VOUCH -----------------
     elif content.startswith(f"{PREFIX}vouch"):
         if not has_vouch_role:
             await message.channel.send("❌ You are not allowed to vouch.")
             return
-
         if not message.mentions:
             await message.channel.send("❌ Mention a user to vouch for.")
             return
 
         target = message.mentions[0]
 
-        # Send essay-style vouch template
         essay_template = (
             f"**Vouch Template for {target.mention}**\n"
             "Fill in your answers below in this format:\n\n"
             "1️⃣ Experience Rating:\n"
             "2️⃣ Item Bought:\n"
             "3️⃣ Is this user trusted (yes/no):\n\n"
-            f"Please reply with your answers in one message."
+            "Please reply with your answers in one message."
         )
         await message.channel.send(essay_template)
 
@@ -92,7 +97,7 @@ async def on_message(message):
             await message.channel.send("⏰ Vouch timed out. Please try again.")
             return
 
-        # Parse the user’s essay response
+        # Parse user answers
         lines = reply.content.splitlines()
         answers = {"rating": "", "item": "", "trusted": ""}
         for line in lines:
@@ -122,6 +127,69 @@ async def on_message(message):
         embed.add_field(name="Trusted?", value=answers["trusted"] or "Not provided", inline=False)
         await message.channel.send(embed=embed)
 
+    # ----------------- SHOW VOUCHES -----------------
+    elif content == f"{PREFIX}vouches" and is_admin:
+        if guild_id not in vouches or not vouches[guild_id]:
+            await message.channel.send("No vouches recorded yet in this server.")
+            return
+
+        embed = discord.Embed(
+            title=f"All Vouches in {message.guild.name}",
+            color=discord.Color.blue()
+        )
+
+        for user_id, vouch_list in vouches[guild_id].items():
+            user = message.guild.get_member(int(user_id))
+            user_name = user.display_name if user else f"User ID {user_id}"
+            vouch_texts = []
+            for v in vouch_list:
+                vouch_texts.append(
+                    f"**By:** {v['by']}\n⭐ {v['rating']}\n🛒 {v['item']}\n✅ {v['trusted']}"
+                )
+            embed.add_field(
+                name=user_name,
+                value="\n\n".join(vouch_texts[:3]),
+                inline=False
+            )
+
+        await message.channel.send(embed=embed)
+
+    # ----------------- LOCK / UNLOCK -----------------
+    elif content == f"{PREFIX}lock" and is_admin:
+        overwrite = message.channel.overwrites_for(message.guild.default_role)
+        overwrite.send_messages = False
+        await message.channel.set_permissions(message.guild.default_role, overwrite=overwrite)
+        await message.channel.send("🔒 Channel locked.")
+
+    elif content == f"{PREFIX}unlock" and is_admin:
+        overwrite = message.channel.overwrites_for(message.guild.default_role)
+        overwrite.send_messages = True
+        await message.channel.set_permissions(message.guild.default_role, overwrite=overwrite)
+        await message.channel.send("🔓 Channel unlocked.")
+
+    # ----------------- MODERATION -----------------
+    elif content.startswith(f"{PREFIX}kick") and is_admin and message.mentions:
+        await message.mentions[0].kick()
+        await message.channel.send("👢 User kicked.")
+
+    elif content.startswith(f"{PREFIX}ban") and is_admin and message.mentions:
+        await message.mentions[0].ban()
+        await message.channel.send("⛔ User banned.")
+
+    elif content.startswith(f"{PREFIX}unban") and is_admin:
+        try:
+            user_tag = content.split(" ", 1)[1]
+            name, discrim = user_tag.split("#")
+        except:
+            await message.channel.send("❌ Use: $unban username#1234")
+            return
+        for ban in await message.guild.bans():
+            user = ban.user
+            if user.name == name and user.discriminator == discrim:
+                await message.guild.unban(user)
+                await message.channel.send("✅ User unbanned")
+                return
+
     # ----------------- FUN / UTILITY -----------------
     elif content == f"{PREFIX}ping":
         await message.channel.send(f"🏓 Pong! {round(client.latency*1000)}ms")
@@ -146,11 +214,12 @@ async def on_message(message):
         await message.channel.send(random.choice(["🪙 Heads", "🪙 Tails"]))
 
     elif content == f"{PREFIX}roll":
-        await message.channel.send(f"🎲 {random.randint(1, 6)}")
+        await message.channel.send(f"🎲 {random.randint(1,6)}")
 
     elif content.startswith(f"{PREFIX}8ball"):
         responses = [
-            "It is certain.", "Without a doubt.", "Yes.", "Ask again later.", "No.", "Very doubtful."
+            "It is certain.", "Without a doubt.", "Yes.", "Ask again later.",
+            "No.", "Very doubtful."
         ]
         await message.channel.send(random.choice(responses))
 
