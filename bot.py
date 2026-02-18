@@ -10,11 +10,13 @@ from datetime import timedelta
 
 # ----------------- CONFIG -----------------
 PREFIX = "$"
-TOKEN = os.getenv("TOKEN")  # Must be set in environment variables
+TOKEN = os.getenv("TOKEN")
 VOUCH_FILE = "vouches.json"
-VOUCH_ROLE_ID = 1473083771963310233  # Updated member/fun role
-BOT_OWNER_ID = 1320875525409083459  # Only this user can close tickets
-PROTECTED_ROLE_ID = 1473083771963310233  # Role no one can ping
+VOUCH_ROLE_ID = 1473083771963310233  # UPDATED role: fun/utility/ticket
+BOT_OWNER_ID = 1320875525409083459
+
+# 🔥 PROTECTED ROLE
+PROTECTED_ROLE_ID = 1473083771963310233
 TIMEOUT_DURATION = 60 * 60 * 24 * 7  # 7 days
 
 # ----------------- INTENTS -----------------
@@ -54,8 +56,10 @@ async def create_vouch_image_single(vouch, author_avatar_url):
     except:
         font = ImageFont.load_default()
 
+    # Header bar
     draw.rectangle([(0,0),(width,40)], fill=(95, 158, 160))
 
+    # Avatar
     avatar_img = await fetch_avatar_image(author_avatar_url)
     if avatar_img:
         avatar_img = avatar_img.resize((60,60))
@@ -115,14 +119,17 @@ async def on_message(message):
     if message.author.bot or not message.guild:
         return
 
-    # ----------------- PROTECTED ROLE PING -----------------
-    if any(role.id == PROTECTED_ROLE_ID for role in message.role_mentions):
+    # ----------------- ANTI ROLE PING -----------------
+    protected_ping = f"<@&{PROTECTED_ROLE_ID}>"
+    if protected_ping in message.content:
         if not message.author.guild_permissions.administrator:
+            # Delete message immediately
             try:
                 await message.delete()
             except:
                 pass
 
+            # Timeout for 7 days
             try:
                 await message.author.timeout(
                     discord.utils.utcnow() + timedelta(seconds=TIMEOUT_DURATION),
@@ -131,9 +138,11 @@ async def on_message(message):
             except Exception as e:
                 print("Timeout failed:", e)
 
+            # Notify without ping
             try:
                 await message.channel.send(
-                    f"🚫 {message.author.mention} You cannot ping that role.\nYou have been timed out for 7 days.",
+                    f"🚫 You cannot ping the protected role. You have been timed out for 7 days.",
+                    allowed_mentions=discord.AllowedMentions.none(),
                     delete_after=5
                 )
             except:
@@ -219,8 +228,10 @@ async def on_message(message):
         })
         save_vouches()
 
-        img_buffer = await create_vouch_image_single(vouches[guild_id][str(target.id)][-1],
-                                                     message.author.avatar.url if message.author.avatar else "")
+        img_buffer = await create_vouch_image_single(
+            vouches[guild_id][str(target.id)][-1],
+            message.author.avatar.url if message.author.avatar else ""
+        )
         await message.channel.send(file=discord.File(fp=img_buffer, filename="vouch.png"))
 
     # ----------------- REVIEWS -----------------
