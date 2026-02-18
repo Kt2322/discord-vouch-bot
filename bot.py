@@ -10,14 +10,12 @@ from datetime import timedelta
 
 # ----------------- CONFIG -----------------
 PREFIX = "$"
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TOKEN")  # Your bot token in env variable
 VOUCH_FILE = "vouches.json"
-VOUCH_ROLE_ID = 1473083771963310233  # UPDATED role: fun/utility/ticket
-BOT_OWNER_ID = 1320875525409083459
-
-# 🔥 PROTECTED ROLE
-PROTECTED_ROLE_ID = 1473083771963310233
-TIMEOUT_DURATION = 60 * 60 * 24 * 7  # 7 days
+MEMBER_ROLE_ID = 1473083771963310233  # Updated member role
+BOT_OWNER_ID = 1320875525409083459  # Your ID
+PROTECTED_ROLE_ID = 1472071858047422514  # Role you want to block pinging
+TIMEOUT_DURATION = 60 * 60 * 24 * 7  # 7 days in seconds
 
 # ----------------- INTENTS -----------------
 intents = discord.Intents.default()
@@ -56,10 +54,8 @@ async def create_vouch_image_single(vouch, author_avatar_url):
     except:
         font = ImageFont.load_default()
 
-    # Header bar
     draw.rectangle([(0,0),(width,40)], fill=(95, 158, 160))
 
-    # Avatar
     avatar_img = await fetch_avatar_image(author_avatar_url)
     if avatar_img:
         avatar_img = avatar_img.resize((60,60))
@@ -119,17 +115,22 @@ async def on_message(message):
     if message.author.bot or not message.guild:
         return
 
+    content = message.content.strip()
+    guild_id = str(message.guild.id)
+    user_roles = [role.id for role in message.author.roles]
+    has_member_role = MEMBER_ROLE_ID in user_roles
+    is_admin = message.author.guild_permissions.administrator
+    is_owner = message.author.id == BOT_OWNER_ID
+
     # ----------------- ANTI ROLE PING -----------------
-    protected_ping = f"<@&{PROTECTED_ROLE_ID}>"
-    if protected_ping in message.content:
+    protected_mention = f"<@&{PROTECTED_ROLE_ID}>"
+    if protected_mention in content:
         if not message.author.guild_permissions.administrator:
-            # Delete message immediately
             try:
                 await message.delete()
             except:
                 pass
 
-            # Timeout for 7 days
             try:
                 await message.author.timeout(
                     discord.utils.utcnow() + timedelta(seconds=TIMEOUT_DURATION),
@@ -138,10 +139,9 @@ async def on_message(message):
             except Exception as e:
                 print("Timeout failed:", e)
 
-            # Notify without ping
             try:
                 await message.channel.send(
-                    f"🚫 You cannot ping the protected role. You have been timed out for 7 days.",
+                    f"🚫 {message.author.display_name}, you cannot ping that role. You have been timed out for 7 days.",
                     allowed_mentions=discord.AllowedMentions.none(),
                     delete_after=5
                 )
@@ -149,17 +149,10 @@ async def on_message(message):
                 pass
             return
 
-    content = message.content.strip()
-    guild_id = str(message.guild.id)
-    user_roles = [role.id for role in message.author.roles]
-    has_vouch_role = VOUCH_ROLE_ID in user_roles
-    is_admin = message.author.guild_permissions.administrator
-    is_owner = message.author.id == BOT_OWNER_ID
-
     # ----------------- HELP -----------------
     if content == f"{PREFIX}help":
         commands = []
-        if has_vouch_role:
+        if has_member_role:
             commands += [
                 "$vouch @user — submit a vouch",
                 "$ticket — create a ticket with bot owner",
@@ -183,10 +176,7 @@ async def on_message(message):
         await message.channel.send("**Available Commands:**\n" + "\n".join(commands))
 
     # ----------------- VOUCH -----------------
-    elif content.startswith(f"{PREFIX}vouch"):
-        if not has_vouch_role:
-            await message.channel.send("❌ You are not allowed to vouch.")
-            return
+    elif content.startswith(f"{PREFIX}vouch") and has_member_role:
         if not message.mentions or message.mentions[0].id != BOT_OWNER_ID:
             await message.channel.send(f"❌ You can only vouch for <@{BOT_OWNER_ID}>.")
             return
@@ -245,7 +235,7 @@ async def on_message(message):
 
     # ----------------- TICKET -----------------
     elif content.startswith(f"{PREFIX}ticket"):
-        if has_vouch_role and content == f"{PREFIX}ticket":
+        if has_member_role and content == f"{PREFIX}ticket":
             overwrites = {
                 message.guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 message.author: discord.PermissionOverwrite(read_messages=True),
