@@ -10,13 +10,11 @@ from datetime import timedelta
 
 # ----------------- CONFIG -----------------
 PREFIX = "$"
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TOKEN")  # Must be set in environment variables
 VOUCH_FILE = "vouches.json"
-FUN_ROLE_ID = 1473083771963310233  # New fun/member role
-BOT_OWNER_ID = 1320875525409083459
-
-# ----------------- PROTECTED ROLE -----------------
-PROTECTED_ROLE_ID = 1473083771963310233  # Example, can change
+VOUCH_ROLE_ID = 1473083771963310233  # Updated member/fun role
+BOT_OWNER_ID = 1320875525409083459  # Only this user can close tickets
+PROTECTED_ROLE_ID = 1473083771963310233  # Role no one can ping
 TIMEOUT_DURATION = 60 * 60 * 24 * 7  # 7 days
 
 # ----------------- INTENTS -----------------
@@ -117,36 +115,42 @@ async def on_message(message):
     if message.author.bot or not message.guild:
         return
 
-    # ----------------- ANTI ROLE PING -----------------
-    protected_ping = f"<@&{PROTECTED_ROLE_ID}>"
-    if protected_ping in message.content:
+    # ----------------- PROTECTED ROLE PING -----------------
+    if any(role.id == PROTECTED_ROLE_ID for role in message.role_mentions):
         if not message.author.guild_permissions.administrator:
             try:
                 await message.delete()
             except:
                 pass
+
             try:
-                await message.author.timeout(discord.utils.utcnow() + timedelta(seconds=TIMEOUT_DURATION), reason="Unauthorized protected role ping")
+                await message.author.timeout(
+                    discord.utils.utcnow() + timedelta(seconds=TIMEOUT_DURATION),
+                    reason="Unauthorized protected role ping"
+                )
             except Exception as e:
                 print("Timeout failed:", e)
+
             try:
-                await message.channel.send(f"🚫 {message.author.mention} You cannot ping that role.\nYou have been timed out for 7 days.", delete_after=5)
+                await message.channel.send(
+                    f"🚫 {message.author.mention} You cannot ping that role.\nYou have been timed out for 7 days.",
+                    delete_after=5
+                )
             except:
                 pass
             return
 
     content = message.content.strip()
     guild_id = str(message.guild.id)
-
     user_roles = [role.id for role in message.author.roles]
-    has_fun_role = FUN_ROLE_ID in user_roles
+    has_vouch_role = VOUCH_ROLE_ID in user_roles
     is_admin = message.author.guild_permissions.administrator
     is_owner = message.author.id == BOT_OWNER_ID
 
     # ----------------- HELP -----------------
     if content == f"{PREFIX}help":
         commands = []
-        if has_fun_role:
+        if has_vouch_role:
             commands += [
                 "$vouch @user — submit a vouch",
                 "$ticket — create a ticket with bot owner",
@@ -171,7 +175,7 @@ async def on_message(message):
 
     # ----------------- VOUCH -----------------
     elif content.startswith(f"{PREFIX}vouch"):
-        if not has_fun_role:
+        if not has_vouch_role:
             await message.channel.send("❌ You are not allowed to vouch.")
             return
         if not message.mentions or message.mentions[0].id != BOT_OWNER_ID:
@@ -215,11 +219,8 @@ async def on_message(message):
         })
         save_vouches()
 
-        img_buffer = await create_vouch_image_single(
-            vouches[guild_id][str(target.id)][-1],
-            message.author.avatar.url if message.author.avatar else ""
-        )
-
+        img_buffer = await create_vouch_image_single(vouches[guild_id][str(target.id)][-1],
+                                                     message.author.avatar.url if message.author.avatar else "")
         await message.channel.send(file=discord.File(fp=img_buffer, filename="vouch.png"))
 
     # ----------------- REVIEWS -----------------
@@ -233,7 +234,7 @@ async def on_message(message):
 
     # ----------------- TICKET -----------------
     elif content.startswith(f"{PREFIX}ticket"):
-        if has_fun_role and content == f"{PREFIX}ticket":
+        if has_vouch_role and content == f"{PREFIX}ticket":
             overwrites = {
                 message.guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 message.author: discord.PermissionOverwrite(read_messages=True),
