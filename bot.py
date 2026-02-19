@@ -12,9 +12,11 @@ from datetime import timedelta
 PREFIX = "$"
 TOKEN = os.getenv("TOKEN")
 VOUCH_FILE = "vouches.json"
-VOUCH_ROLE_ID = 1473083771963310233  # Updated role ID for fun + vouch + ticket
+VOUCH_ROLE_ID = 1473083771963310233  # Updated fun/vouch role
 BOT_OWNER_ID = 1320875525409083459
-PROTECTED_ROLE_ID = 1473083771963310233  # Protected role to prevent ping
+
+# 🔥 Protected role (can't ping)
+PROTECTED_ROLE_ID = 1473083771963310233
 TIMEOUT_DURATION = 60 * 60 * 24 * 7  # 7 days
 
 # ----------------- INTENTS -----------------
@@ -47,70 +49,72 @@ async def fetch_avatar_image(url):
             data = await resp.read()
             return Image.open(BytesIO(data)).convert("RGBA")
 
-# ----------------- CREATE VOUCH IMAGE -----------------
+# ----------------- VOUCH IMAGE SINGLE -----------------
 async def create_vouch_image_single(vouch):
-    width, height = 500, 220
-    img = Image.new("RGB", (width, height), color=(30, 30, 50))
+    width, height = 600, 260
+    img = Image.new('RGB', (width, height), color=(30, 30, 50))
     draw = ImageDraw.Draw(img)
 
-    # Try bubble-style font, fallback to Arial
+    # Fonts (bubble style fallback)
     try:
-        font_title = ImageFont.truetype("comic.ttf", 36)
-        font_body = ImageFont.truetype("comic.ttf", 28)
+        font_title = ImageFont.truetype("ComicNeue-Bold.ttf", 30)
+        font_body = ImageFont.truetype("ComicNeue-Bold.ttf", 22)
     except:
-        font_title = ImageFont.truetype("arialbd.ttf", 36)
-        font_body = ImageFont.truetype("arial.ttf", 28)
+        font_title = ImageFont.load_default()
+        font_body = ImageFont.load_default()
 
-    # Header
-    draw.rectangle([(0,0),(width,50)], fill=(100,180,250))
-    draw.text((20,10), "💌 New Vouch Received", font=font_title, fill=(255,255,255))
+    # Header bar
+    draw.rectangle([(0,0),(width,50)], fill=(255, 105, 180))
+    draw.text((20,10), "New Vouch!", fill=(255,255,255), font=font_title)
 
     # Avatar
-    avatar_img = await fetch_avatar_image(vouch.get("avatar_url", ""))
+    avatar_img = await fetch_avatar_image(vouch.get('avatar_url'))
     if avatar_img:
-        avatar_img = avatar_img.resize((70,70))
-        img.paste(avatar_img, (20, 70))
+        avatar_img = avatar_img.resize((80,80))
+        img.paste(avatar_img, (20, 60))
 
     # Vouch info
-    draw.text((110, 70), f"By: {vouch['by']}", font=font_body, fill=(255,255,0))
-    draw.text((110, 110), f"⭐ Rating: {vouch['rating']}", font=font_body, fill=(255,215,0))
-    draw.text((110, 150), f"🛒 Item: {vouch['item']}", font=font_body, fill=(173,216,230))
-    draw.text((110, 190), f"✅ Trusted: {vouch['trusted']}", font=font_body, fill=(144,238,144))
+    draw.text((120, 60), f"By: {vouch['by']}", fill=(255,255,0), font=font_body)
+    draw.text((120, 100), f"⭐ Rating: {vouch['rating']}", fill=(255,215,0), font=font_body)
+    draw.text((120, 140), f"🛒 Item: {vouch['item']}", fill=(173,216,230), font=font_body)
+    draw.text((120, 180), f"✅ Trusted: {vouch['trusted']}", fill=(144,238,144), font=font_body)
 
     buffer = BytesIO()
     img.save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
 
-# ----------------- VOUCH BOARD IMAGE -----------------
+# ----------------- VOUCH BOARD -----------------
 async def create_vouch_image_board(vouch_list, per_row=2):
-    card_width, card_height = 500, 220
+    card_w, card_h = 600, 260
     rows = (len(vouch_list) + per_row - 1) // per_row
-    width = card_width * per_row
-    height = card_height * rows
-    img = Image.new("RGB", (width, height), color=(30,30,50))
+    width = card_w * per_row
+    height = card_h * rows
+    img = Image.new('RGB', (width, height), color=(30,30,50))
 
     try:
-        font_title = ImageFont.truetype("comic.ttf", 28)
+        font_title = ImageFont.truetype("ComicNeue-Bold.ttf", 24)
+        font_body = ImageFont.truetype("ComicNeue-Bold.ttf", 18)
     except:
-        font_title = ImageFont.truetype("arialbd.ttf", 28)
+        font_title = ImageFont.load_default()
+        font_body = ImageFont.load_default()
 
-    for idx, vouch in enumerate(vouch_list):
-        x = (idx % per_row) * card_width
-        y = (idx // per_row) * card_height
+    for idx, v in enumerate(vouch_list):
+        x = (idx % per_row) * card_w
+        y = (idx // per_row) * card_h
         draw = ImageDraw.Draw(img)
-        draw.rectangle([(x,y),(x+card_width,y+card_height-10)], fill=(50,50,80))
 
-        # Avatar
-        avatar_img = await fetch_avatar_image(vouch.get("avatar_url", ""))
+        draw.rectangle([(x,y),(x+card_w,y+card_h-10)], fill=(50,50,80))
+
+        avatar_img = await fetch_avatar_image(v.get('avatar_url'))
         if avatar_img:
             avatar_img = avatar_img.resize((60,60))
             img.paste(avatar_img, (x+10, y+50))
 
-        draw.text((x+80, y+20), f"{vouch['by']}", font=font_title, fill=(255,255,255))
-        draw.text((x+80, y+70), f"⭐ {vouch['rating']}", font=font_title, fill=(255,215,0))
-        draw.text((x+80, y+110), f"🛒 {vouch['item']}", font=font_title, fill=(173,216,230))
-        draw.text((x+80, y+150), f"✅ {vouch['trusted']}", font=font_title, fill=(144,238,144))
+        draw.text((x+80, y+20), f"{v['by']}", fill=(255,255,0), font=font_title)
+        draw.text((x+80, y+70), f"⭐ {v['rating']}", fill=(255,215,0), font=font_body)
+        draw.text((x+80, y+100), f"🛒 {v['item']}", fill=(173,216,230), font=font_body)
+        draw.text((x+80, y+130), f"✅ {v['trusted']}", fill=(144,238,144), font=font_body)
 
     buffer = BytesIO()
     img.save(buffer, format="PNG")
@@ -128,29 +132,22 @@ async def on_message(message):
     if message.author.bot or not message.guild:
         return
 
-    # ----------------- ANTI-PROTECTED ROLE PING -----------------
+    # 🔥 Anti-role ping
     protected_ping = f"<@&{PROTECTED_ROLE_ID}>"
-    if protected_ping in message.content:
-        if not message.author.guild_permissions.administrator:
-            try:
-                await message.delete()
-            except:
-                pass
-            try:
-                await message.author.timeout(
-                    discord.utils.utcnow() + timedelta(seconds=TIMEOUT_DURATION),
-                    reason="Unauthorized protected role ping"
-                )
-            except Exception as e:
-                print("Timeout failed:", e)
-            try:
-                await message.channel.send(
-                    f"🚫 {message.author.mention}, you cannot ping that role! You have been timed out 7 days.",
-                    delete_after=5
-                )
-            except:
-                pass
-            return
+    if protected_ping in message.content and not message.author.guild_permissions.administrator:
+        try:
+            await message.delete()
+        except: pass
+        try:
+            await message.author.timeout(
+                discord.utils.utcnow() + timedelta(seconds=TIMEOUT_DURATION),
+                reason="Unauthorized role ping"
+            )
+        except: pass
+        try:
+            await message.channel.send(f"🚫 {message.author.mention} You cannot ping that role. Timed out 7 days.", delete_after=5)
+        except: pass
+        return
 
     content = message.content.strip()
     guild_id = str(message.guild.id)
@@ -214,7 +211,9 @@ async def on_message(message):
                 answers.append(answer.content)
                 await answer.delete()
             except asyncio.TimeoutError:
-                await message.channel.send("⏰ Vouch timed out. Please try again.")
+                await message.channel.send("⏰ Vouch timed out.")
+                for qmsg in question_messages:
+                    await qmsg.delete()
                 return
 
         for qmsg in question_messages:
@@ -222,17 +221,22 @@ async def on_message(message):
 
         vouches.setdefault(guild_id, {})
         vouches[guild_id].setdefault(str(target.id), [])
+        avatar_url = getattr(message.author.avatar, "url", None)
         vouches[guild_id][str(target.id)].append({
             "by": f"{message.author} ({message.author.id})",
             "rating": answers[0],
             "item": answers[1],
             "trusted": answers[2],
-            "avatar_url": getattr(message.author.avatar, "url", "")
+            "avatar_url": avatar_url
         })
         save_vouches()
 
-        img_buffer = await create_vouch_image_single(vouches[guild_id][str(target.id)][-1])
-        await message.channel.send(file=discord.File(fp=img_buffer, filename="vouch.png"))
+        try:
+            img_buffer = await create_vouch_image_single(vouches[guild_id][str(target.id)][-1])
+            await message.channel.send(file=discord.File(fp=img_buffer, filename="vouch.png"))
+        except Exception as e:
+            await message.channel.send("❌ Failed to generate vouch image.")
+            print("Vouch image error:", e)
 
     # ----------------- REVIEWS -----------------
     elif content == f"{PREFIX}reviews" and is_admin:
@@ -241,72 +245,17 @@ async def on_message(message):
             return
         vouch_list = []
         for user_vouches in vouches[guild_id].values():
-            vouch_list.extend(user_vouches)
-        img_buffer = await create_vouch_image_board(vouch_list)
-        await message.channel.send(file=discord.File(fp=img_buffer, filename="reviews.png"))
-
-    # ----------------- TICKET -----------------
-    elif content.startswith(f"{PREFIX}ticket"):
-        if has_vouch_role and content == f"{PREFIX}ticket":
-            overwrites = {
-                message.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                message.author: discord.PermissionOverwrite(read_messages=True),
-                message.guild.get_member(BOT_OWNER_ID): discord.PermissionOverwrite(read_messages=True)
-            }
-            channel = await message.guild.create_text_channel(f"ticket-{message.author.name}", overwrites=overwrites)
-            await channel.send(f"Ticket created by {message.author.mention}")
-        elif (is_admin or is_owner) and message.mentions:
-            target = message.mentions[0]
-            overwrites = {
-                message.guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                target: discord.PermissionOverwrite(read_messages=True),
-                message.author: discord.PermissionOverwrite(read_messages=True)
-            }
-            channel = await message.guild.create_text_channel(f"ticket-{target.name}", overwrites=overwrites)
-            await channel.send(f"Ticket created with {target.mention}")
-        else:
-            await message.channel.send("❌ You cannot use this command this way.")
-
-    # ----------------- CLOSE -----------------
-    elif content == f"{PREFIX}close" and message.author.id == BOT_OWNER_ID:
-        await message.channel.delete()
-
-    # ----------------- MOD -----------------
-    elif content == f"{PREFIX}lock" and is_admin:
-        overwrite = message.channel.overwrites_for(message.guild.default_role)
-        overwrite.send_messages = False
-        await message.channel.set_permissions(message.guild.default_role, overwrite=overwrite)
-        await message.channel.send("🔒 Channel locked.")
-
-    elif content == f"{PREFIX}unlock" and is_admin:
-        overwrite = message.channel.overwrites_for(message.guild.default_role)
-        overwrite.send_messages = True
-        await message.channel.set_permissions(message.guild.default_role, overwrite=overwrite)
-        await message.channel.send("🔓 Channel unlocked.")
-
-    elif content.startswith(f"{PREFIX}kick") and is_admin and message.mentions:
-        await message.mentions[0].kick()
-        await message.channel.send("👢 User kicked.")
-
-    elif content.startswith(f"{PREFIX}ban") and is_admin and message.mentions:
-        await message.mentions[0].ban()
-        await message.channel.send("⛔ User banned.")
-
-    elif content.startswith(f"{PREFIX}unban") and is_admin:
+            for v in user_vouches:
+                v['avatar_url'] = v.get('avatar_url') or None
+                vouch_list.append(v)
         try:
-            user_tag = content.split(" ", 1)[1]
-            name, discrim = user_tag.split("#")
-        except:
-            await message.channel.send("❌ Use: $unban username#1234")
-            return
-        for ban in await message.guild.bans():
-            user = ban.user
-            if user.name == name and user.discriminator == discrim:
-                await message.guild.unban(user)
-                await message.channel.send("✅ User unbanned.")
-                return
+            img_buffer = await create_vouch_image_board(vouch_list)
+            await message.channel.send(file=discord.File(fp=img_buffer, filename="reviews.png"))
+        except Exception as e:
+            await message.channel.send("❌ Failed to generate reviews board.")
+            print("Reviews image error:", e)
 
-    # ----------------- FUN / UTILITY -----------------
+    # ----------------- OTHER COMMANDS -----------------
     elif content == f"{PREFIX}ping":
         await message.channel.send(f"🏓 Pong! {round(client.latency*1000)}ms")
 
@@ -324,7 +273,7 @@ async def on_message(message):
 
     elif content.startswith(f"{PREFIX}avatar"):
         target = message.mentions[0] if message.mentions else message.author
-        await message.channel.send(target.avatar.url if target.avatar else "No Avatar")
+        await message.channel.send(target.avatar.url)
 
     elif content == f"{PREFIX}coinflip":
         await message.channel.send(random.choice(["🪙 Heads", "🪙 Tails"]))
