@@ -4,7 +4,7 @@ import json
 import os
 import random
 import aiohttp
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageSequence
 from io import BytesIO
 from datetime import timedelta, datetime
 
@@ -36,6 +36,11 @@ def save_vouches():
     with open(VOUCH_FILE, "w") as f:
         json.dump(vouches, f, indent=4)
 
+# ----------------- GIF CONFIG -----------------
+BOTTOM_RIGHT_GIF = "https://i.postimg.cc/grMzTcFM"
+TOP_RIGHT_GIF = "https://i.postimg.cc/jDnSfp1c"
+SNOW_BG_GIF = "https://i.postimg.cc/c611hgjn"
+
 # ----------------- HELPER FUNCTIONS -----------------
 async def fetch_avatar_image(url):
     async with aiohttp.ClientSession() as session:
@@ -45,7 +50,15 @@ async def fetch_avatar_image(url):
             data = await resp.read()
             return Image.open(BytesIO(data)).convert("RGBA")
 
-def stars_emoji(rating_str):
+async def fetch_gif(url):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.read()
+            return Image.open(BytesIO(data))
+
+def stars_emoji_glow(rating_str):
     try:
         num = int(rating_str)
         if num < 1: num = 1
@@ -54,63 +67,93 @@ def stars_emoji(rating_str):
     except:
         return rating_str
 
+# ----------------- VOUCH IMAGE -----------------
 async def create_vouch_image(vouch):
-    width, height = 500, 220
-    img = Image.new("RGB", (width, height), (173, 216, 230))  # baby blue background
-    draw = ImageDraw.Draw(img)
+    bg_gif = await fetch_gif(SNOW_BG_GIF)
+    bottom_gif = await fetch_gif(BOTTOM_RIGHT_GIF)
+    top_gif = await fetch_gif(TOP_RIGHT_GIF)
+    
+    avatar_img = await fetch_avatar_image(vouch.get("avatar_url", ""))
+    if avatar_img:
+        avatar_img = avatar_img.resize((70, 70))
+    
     try:
         font = ImageFont.truetype("bubble.ttf", 32)
     except:
         font = ImageFont.load_default()
-
-    # colored header
-    draw.rectangle([(0,0),(width,50)], fill=(255,182,193))  # pink band
-
-    # draw avatar
-    avatar_img = await fetch_avatar_image(vouch.get("avatar_url", ""))
-    if avatar_img:
-        avatar_img = avatar_img.resize((70,70))
-        img.paste(avatar_img, (20,60), avatar_img)
-
-    # draw text
-    draw.text((110, 60), f"{vouch['by']}", fill=(255,255,255), font=font)
-    draw.text((110, 100), f"⭐ Rating: {stars_emoji(vouch['rating'])}", fill=(255, 215, 0), font=font)
-    draw.text((110, 140), f"🛒 Item: {vouch['item']}", fill=(255, 255, 255), font=font)
-    draw.text((110, 180), f"✅ Trusted: {vouch['trusted']}", fill=(144,238,144), font=font)
-
+    
+    frames = []
+    for frame in ImageSequence.Iterator(bg_gif):
+        frame = frame.convert("RGBA")
+        draw = ImageDraw.Draw(frame)
+        
+        if avatar_img:
+            frame.paste(avatar_img, (20, 60), avatar_img)
+        
+        draw.text((110, 60), f"{vouch['by']}", fill=(255,255,255), font=font)
+        draw.text((110, 100), f"⭐ {stars_emoji_glow(vouch['rating'])}", fill=(0, 255, 255), font=font)
+        draw.text((110, 140), f"🛒 {vouch['item']}", fill=(255,255,255), font=font)
+        draw.text((110, 180), f"✅ {vouch['trusted']}", fill=(144,238,144), font=font)
+        
+        if top_gif:
+            top_frame = next(ImageSequence.Iterator(top_gif)).convert("RGBA").resize((80, 80))
+            frame.paste(top_frame, (frame.width - 90, 10), top_frame)
+        if bottom_gif:
+            bottom_frame = next(ImageSequence.Iterator(bottom_gif)).convert("RGBA").resize((50, 50))
+            frame.paste(bottom_frame, (frame.width - 60, frame.height - 60), bottom_frame)
+        
+        frames.append(frame)
+    
     buffer = BytesIO()
-    img.save(buffer, format="PNG")
+    frames[0].save(buffer, format="GIF", save_all=True, append_images=frames[1:], loop=0, duration=100, disposal=2)
     buffer.seek(0)
     return buffer
 
+# ----------------- VOUCH BOARD IMAGE -----------------
 async def create_vouch_board_image(vouch_list, per_row=3):
     card_width, card_height = 500, 220
     rows = (len(vouch_list) + per_row - 1) // per_row
-    width, height = card_width*per_row, card_height*rows
-    img = Image.new("RGB", (width, height), (173,216,230))  # baby blue background
-
+    width, height = card_width * per_row, card_height * rows
+    
+    bg_gif = await fetch_gif(SNOW_BG_GIF)
+    bottom_gif = await fetch_gif(BOTTOM_RIGHT_GIF)
+    top_gif = await fetch_gif(TOP_RIGHT_GIF)
+    
     try:
         font = ImageFont.truetype("bubble.ttf", 28)
     except:
         font = ImageFont.load_default()
-
-    for idx, vouch in enumerate(vouch_list):
-        x, y = (idx % per_row)*card_width, (idx // per_row)*card_height
-        draw = ImageDraw.Draw(img)
-        draw.rectangle([(x, y), (x+card_width, y+card_height-10)], fill=(255,182,193))  # pink band background
-
-        avatar_img = await fetch_avatar_image(vouch.get("avatar_url", ""))
-        if avatar_img:
-            avatar_img = avatar_img.resize((60,60))
-            img.paste(avatar_img,(x+10,y+50), avatar_img)
-
-        draw.text((x+80,y+20), f"{vouch['by']}", fill=(255,255,255), font=font)
-        draw.text((x+80,y+60), f"⭐ {stars_emoji(vouch['rating'])}", fill=(255,215,0), font=font)
-        draw.text((x+80,y+90), f"🛒 {vouch['item']}", fill=(255,255,255), font=font)
-        draw.text((x+80,y+120), f"✅ {vouch['trusted']}", fill=(144,238,144), font=font)
-
+    
+    frames = []
+    for frame in ImageSequence.Iterator(bg_gif):
+        frame = frame.convert("RGBA").resize((width, height))
+        draw = ImageDraw.Draw(frame)
+        
+        for idx, vouch in enumerate(vouch_list):
+            x, y = (idx % per_row) * card_width, (idx // per_row) * card_height
+            draw.rectangle([(x, y), (x + card_width, y + card_height - 10)], fill=(10, 10, 40, 200))  # navy
+            
+            avatar_img = await fetch_avatar_image(vouch.get("avatar_url", ""))
+            if avatar_img:
+                avatar_img = avatar_img.resize((60, 60))
+                frame.paste(avatar_img, (x + 10, y + 50), avatar_img)
+            
+            draw.text((x + 80, y + 20), f"{vouch['by']}", fill=(255,255,255), font=font)
+            draw.text((x + 80, y + 60), f"⭐ {stars_emoji_glow(vouch['rating'])}", fill=(0, 255, 255), font=font)
+            draw.text((x + 80, y + 90), f"🛒 {vouch['item']}", fill=(255,255,255), font=font)
+            draw.text((x + 80, y + 120), f"✅ {vouch['trusted']}", fill=(144,238,144), font=font)
+        
+        if top_gif:
+            top_frame = next(ImageSequence.Iterator(top_gif)).convert("RGBA").resize((80, 80))
+            frame.paste(top_frame, (frame.width - 90, 10), top_frame)
+        if bottom_gif:
+            bottom_frame = next(ImageSequence.Iterator(bottom_gif)).convert("RGBA").resize((50, 50))
+            frame.paste(bottom_frame, (frame.width - 60, frame.height - 60), bottom_frame)
+        
+        frames.append(frame)
+    
     buffer = BytesIO()
-    img.save(buffer, format="PNG")
+    frames[0].save(buffer, format="GIF", save_all=True, append_images=frames[1:], loop=0, duration=100, disposal=2)
     buffer.seek(0)
     return buffer
 
@@ -221,11 +264,10 @@ async def on_message(message):
         })
         save_vouches()
 
-        # create image and embed
         img_buffer = await create_vouch_image(vouches[guild_id][str(target.id)][-1])
-        file = discord.File(fp=img_buffer, filename="vouch.png")
-        embed = discord.Embed(title="New Vouch!", color=0x87CEFA)
-        embed.set_image(url="attachment://vouch.png")
+        file = discord.File(fp=img_buffer, filename="vouch.gif")
+        embed = discord.Embed(title="New Vouch!", color=0x1E1E3F)
+        embed.set_image(url="attachment://vouch.gif")
         await message.channel.send(file=file, embed=embed)
 
     # ----------------- REVIEWS -----------------
@@ -235,9 +277,9 @@ async def on_message(message):
             return
         vouch_list = [v for uid in vouches[guild_id] for v in vouches[guild_id][uid]]
         img_buffer = await create_vouch_board_image(vouch_list)
-        file = discord.File(fp=img_buffer, filename="reviews.png")
-        embed = discord.Embed(title="Vouch Board", color=0x87CEFA)
-        embed.set_image(url="attachment://reviews.png")
+        file = discord.File(fp=img_buffer, filename="reviews.gif")
+        embed = discord.Embed(title="Vouch Board", color=0x1E1E3F)
+        embed.set_image(url="attachment://reviews.gif")
         await message.channel.send(file=file, embed=embed)
 
     # ----------------- OTHER COMMANDS -----------------
